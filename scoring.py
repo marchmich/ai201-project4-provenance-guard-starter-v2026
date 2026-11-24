@@ -52,11 +52,39 @@ def combine_signals(model_score: float, style_score: float) -> float:
     The weights in config.py are placeholders. Change them, or ignore them and
     write a different rule.
     """
-    # TODO: replace this
-    return (
+    # The rule, in words:
+    #
+    # 1. Weighted average, but not an even split. Signal two is the more
+    #    fragile of the two: it has no length correction, and a short, listy
+    #    sentence can max out all three of its sub-measures at once and read
+    #    as confidently human even when every word is AI-generated. Measured
+    #    case: a 30-word, two-sentence AI paragraph about Washington D.C.
+    #    (one sentence with a four-item list plus a contrast clause) scored
+    #    style_signal 0.0 — the single most human-shaped reading possible —
+    #    purely because that one sentence saturated spread, vocabulary, and
+    #    punctuation density simultaneously. Signal one reads the text
+    #    itself and is harder to game that cheaply, so it gets the bigger
+    #    vote: 65% model, 35% style.
+    #
+    # 2. When the two signals disagree sharply, that split is itself evidence
+    #    of uncertainty, not a confident verdict for whichever signal carries
+    #    more weight. If |model_score - style_score| is more than 0.4, pull
+    #    the weighted average halfway back toward 0.5 before returning it, so
+    #    a wild disagreement reads as "unsure" instead of quietly resolving
+    #    in signal one's favor just because it has the bigger weight.
+    #
+    # The numbers: WEIGHT_MODEL_SIGNAL=0.65, WEIGHT_STYLE_SIGNAL=0.35
+    # (config.py). Disagreement threshold: 0.4. Dampening: halfway to 0.5.
+    weighted = (
         config.WEIGHT_MODEL_SIGNAL * model_score
         + config.WEIGHT_STYLE_SIGNAL * style_score
     )
+
+    disagreement = abs(model_score - style_score)
+    if disagreement > 0.4:
+        weighted += (0.5 - weighted) * 0.5
+
+    return round(min(max(weighted, 0.0), 1.0), 4)
 
 
 def score_to_label(score: float) -> tuple[str, str]:
@@ -85,12 +113,24 @@ def score_to_label(score: float) -> tuple[str, str]:
     think if they got it on their own work. That question is the whole
     milestone.
     """
-    # TODO: replace this — thresholds are in config.py
+    # Thresholds are in config.py. "unsure" is written to admit uncertainty
+    # without sounding like an accusation — see the README for why. "ai"
+    # points the reader at the appeal path rather than stating a verdict as
+    # fact, since this is an automated estimate, not proof.
     if score >= config.AI_THRESHOLD:
-        return "ai", "PLACEHOLDER — write the high-confidence AI label."
+        return "ai", (
+            "Our checks suggest this text was likely written, or substantially "
+            "generated, by an AI tool. This is an automated estimate, not a "
+            "certainty — if you believe this is wrong, you can appeal."
+        )
     if score <= config.HUMAN_THRESHOLD:
-        return "human", "PLACEHOLDER — write the high-confidence human label."
-    return "unsure", "PLACEHOLDER — write the unsure label."
+        return "human", "We think this was most likely written by a person."
+    return "unsure", (
+        "We're not confident either way — this reads like it could be "
+        "human-written, AI-written, or some mix of both. This isn't an "
+        "accusation; our checks just didn't turn up a clear signal in "
+        "either direction."
+    )
 
 
 def label_ranges() -> list[tuple[str, str]]:

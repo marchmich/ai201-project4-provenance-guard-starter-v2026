@@ -109,7 +109,13 @@ Generated prose tends toward even, mid-length sentences and a narrower band of v
 
 **The rule:**
 
+A weighted average of the two signals, but not an even split — 65% model signal, 35% style signal. The style signal has no length correction, and a short or list-shaped sentence can max out all three of its sub-measures (sentence-length spread, vocabulary variety, punctuation density) at once, reading as confidently human even when the text is entirely AI-generated. The model signal reads the text itself and is harder to game that cheaply, so it gets the bigger vote.
+
+When the two signals disagree sharply — more than 0.4 apart — that split is itself treated as evidence of uncertainty, not a confident verdict for whichever signal carries more weight. The weighted average gets pulled halfway back toward 0.5 before it's returned, so a wild disagreement lands as "unsure" instead of quietly resolving in the model signal's favor just because it's weighted higher.
+
 **The numbers:**
+
+`WEIGHT_MODEL_SIGNAL = 0.65`, `WEIGHT_STYLE_SIGNAL = 0.35` (`config.py`). Disagreement threshold: `|model_score − style_score| > 0.4`. When triggered, the combined score moves halfway toward 0.5.
 
 **Where it lives:** `scoring.py::combine_signals`
 
@@ -118,6 +124,14 @@ Generated prose tends toward even, mid-length sentences and a narrower band of v
 
 **A case where my two signals split, and what my rule does with it:**
 
+Two short texts about living in Washington, D.C. — one I wrote, one AI-generated:
+
+- Human: *"I like Washington DC, it is a great city. The weather is nice, the people are kind, the food is good, and there are good vibes all around."* → `style_signal = 0.2517`
+- AI-generated: *"Washington, D.C. is a good place to live if you value career opportunities, walkability, parks, and free cultural institutions, though high housing costs and heavy traffic are major drawbacks."* → `style_signal = 0.0`, `model_score = [TODO: run python detector.py on this text and fill in]`
+
+The style signal called the AI-generated text *more* human-shaped than the actual human writing — the most human-shaped reading possible, in fact. The reason is mechanical, not meaningful: that one AI sentence packs a four-item comma list plus a contrast clause into 30 words, which simultaneously pushed sentence-length spread (1.1314), vocabulary variety (0.9667), and punctuation density (0.1667) all past the ceilings `style_signal` scales against — so all three sub-measures clamped to their maximum "human" value at once, with no headroom left to express anything more extreme.
+
+This is exactly why `combine_signals` gives the model signal the bigger vote: a single saturated style reading shouldn't be able to clear a piece of text on its own. [TODO: once model_score is filled in above, state here whether the combined score correctly lands on "ai"/"unsure" rather than being dragged to "human" by style_signal's 0.0.]
 
 
 ---
@@ -131,14 +145,16 @@ Generated prose tends toward even, mid-length sentences and a narrower band of v
 
 | Label | Score range | The exact text a reader sees |
 |---|---|---|
-| high-confidence human |  |  |
-| unsure |  |  |
-| high-confidence AI |  |  |
+| high-confidence human | 0.00 – 0.35 | "We think this was most likely written by a person." |
+| unsure | 0.35 – 0.65 | "We're not confident either way — this reads like it could be human-written, AI-written, or some mix of both. This isn't an accusation; our checks just didn't turn up a clear signal in either direction." |
+| high-confidence AI | 0.65 – 1.00 | "Our checks suggest this text was likely written, or substantially generated, by an AI tool. This is an automated estimate, not a certainty — if you believe this is wrong, you can appeal." |
 
 **Why I worded the "unsure" one this way:**
 <!-- It's the hardest of the three. It has to admit uncertainty without
      sounding like an accusation, because the person reading it may well have
      written every word themselves. -->
+
+It says "not confident either way" instead of naming a side it leans toward, because a weighted average landing near 0.5 can mean two very different things underneath — both signals genuinely unsure, or the two signals confidently disagreeing (which is exactly what `combine_signals`'s disagreement dampening produces, see the Washington D.C. case above). Either way, the reader doesn't need a number, and shouldn't be told "50% AI" as if that were a precise reading. The line "this isn't an accusation" is there on purpose: the person reading it may well have written every word themselves, and the label needs to survive that possibility without putting them on the defensive. It also avoids words like "detected" or "flagged," which imply the system found something, when all it actually has is an absence of a clear signal.
 
 
 
@@ -165,52 +181,108 @@ Generated prose tends toward even, mid-length sentences and a narrower band of v
 ```bash
 $ curl -X POST http://127.0.0.1:5000/submit \
   -H "Content-Type: application/json" \
-  -d '{"text": "...", "creator_id": "..."}'
+  -d '{"text": "I like Washington DC, it is a great city. The weather is nice, the people are kind, the food is good, and there are good vibes all around", "creator_id": "me"}'
+  "confidence": 0.5863,
+  "content_id": "6bfc938a-442e-4adc-b357-cd27e108d9c2",
+  "guess": "unsure",
+  "label": "We're not confident either way \u2014 this reads like it could be human-written, AI-written, or some mix of both. This isn't an accusation; our checks just didn't turn up a clear signal in either direction.",
+  "model_score": 0.8991,
+  "style_score": 0.2517
+}
 ```
 
 ```json
+{"timestamp": "2026-11-24T04:15:34+00:00", "content_id": "6bfc938a-442e-4adc-b357-cd27e108d9c2", "creator_id": "me", "guess": "unsure", "model_score": 0.8991, "style_score": 0.2517, "combined_score": 0.5863, "label": "We're not confident either way — this reads like it could be human-written, AI-written, or some mix of both. This isn't an accusation; our checks just didn't turn up a clear signal in either direction.", "status": "decided"}
 
 ```
 
 **An appeal**
 
-<!-- /appeal isn't built yet (Milestone 5) — fill this in once it is. -->
+<!-- TODO (Milestone 5): run this locally and paste the real response. Use
+     the content_id that came back from the submission above — not a made-up
+     one, /appeal 404s on an id it can't find in the log. -->
 
 ```bash
 $ curl -X POST http://127.0.0.1:5000/appeal \
   -H "Content-Type: application/json" \
-  -d '{"content_id": "...", "reasoning": "..."}'
+  -d '{"content_id": "6bfc938a-442e-4adc-b357-cd27e108d9c2", "reasoning": "I wrote this myself without AI asistance"}'
+
+     {"content_id": "6bfc938a-442e-4adc-b357-cd27e108d9c2",
+  "message": "Your appeal has been recorded and is under review.",
+  "status": "under_review"
+}
 ```
 
 ```json
+{"timestamp": "2026-11-24T04:18:37+00:00", "content_id": "6bfc938a-442e-4adc-b357-cd27e108d9c2", "creator_id": "me", "event": "appeal", "status": "under_review", "reasoning": "I wrote this myself without AI asistance"}
 
 ```
 
 **What the log shows afterwards**
 
+<!-- Should show two entries for the same content_id: the original
+     "decided" entry untouched, and the appeal entry after it with
+     status "under_review". -->
+
 ```bash
 $ curl "http://127.0.0.1:5000/log?limit=3"
+
+{
+  "count": 3,
+  "entries": [
+    {
+      "combined_score": null,
+      "content_id": "8f02c01e-5b34-4dee-81f3-c06f30c78501",
+      "creator_id": "me",
+      "guess": "ai",
+      "label": null,
+      "model_score": 0.8991,
+      "status": "decided",
+      "style_score": null,
+      "timestamp": "2026-11-24T03:55:25+00:00"
+    },
+    {
+      "combined_score": 0.5863,
+      "content_id": "6bfc938a-442e-4adc-b357-cd27e108d9c2",
+      "creator_id": "me",
+      "guess": "unsure",
+      "label": "We're not confident either way \u2014 this reads like it could be human-written, AI-written, or some mix of both. This isn't an accusation; our checks just didn't turn up a clear signal in either direction.",
+      "model_score": 0.8991,
+      "status": "decided",
+      "style_score": 0.2517,
+      "timestamp": "2026-11-24T04:15:34+00:00"
+    },
+    {
+      "content_id": "6bfc938a-442e-4adc-b357-cd27e108d9c2",
+      "creator_id": "me",
+      "event": "appeal",
+      "reasoning": "I wrote this myself without AI asistance",
+      "status": "under_review",
+      "timestamp": "2026-11-24T04:18:37+00:00"
+    }
+  ]
+}
 ```
 
 ```json
+{"timestamp": "2026-11-24T04:18:37+00:00", "content_id": "6bfc938a-442e-4adc-b357-cd27e108d9c2", "creator_id": "me", "event": "appeal", "status": "under_review", "reasoning": "I wrote this myself without AI asistance"}
 
 ```
 
 ---
 
 ## How I Used AI
-
 **Moment 1**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I asked for help coding the signals
+- *What came back:* A `combine_signals` function (65/35 weighted average with a rule that dampens sharp disagreements toward "unsure"), a `score_to_label` function with the three label texts, and both wired into `/submit`.
+- *What changed:* I tested it against my own sample texts to confirm all three labels were actually reachable, not just theoretically possible.
 
 **Moment 2**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I asked for help how to use curl and appeal
+- *What came back:* An explanation of the `/appeal` request — where `content_id` comes from (the real value `/submit` returns, not a placeholder) and that `reasoning` is free text with no required format.
+- *What changed:* I ran my own `/submit` and `/appeal` calls with my own content and reasoning instead of the placeholder values.
 
 <!-- ═══════════════════════ UNIT 8 — THE TEST ═══════════════════════ -->
 
