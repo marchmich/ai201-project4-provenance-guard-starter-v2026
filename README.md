@@ -290,13 +290,10 @@ $ curl "http://127.0.0.1:5000/log?limit=3"
 
 ## Rate Limiting
 
-**My limits:** ___ per minute, ___ per day
+**My limits:** 10 per minute, 100 per day
 
 **Why those numbers and not others:**
-<!-- Think about two people: a real writer submitting their own work a few
-     times an hour, and a script sending a thousand variations to map your
-     thresholds. Your numbers have to be liveable for the first and hostile to
-     the second. -->
+I chose 10 per minute because that is a reasonable time in which a person could copy and paste, or write the text for AI generation detection. Any number above that is unreasonable and must have some type of automatization behind, which can be a cybsersecurity attack. 100 a day sounds like a reasonable number of documents to check in a day. An example: a professor grading/reviewing student's submissions could likely need the service 100 times (strech number). Most common than often, professors would only need the service less than 100 times a day. 
 
 **What a caller counts as:** <!-- per address, or per creator_id? They fail
 differently — one script can look like a thousand callers, and one household
@@ -307,7 +304,33 @@ can look like one. -->
 <!-- python run_attacks.py --flood 15 -->
 
 ```
+15 submissions as 'flood_tester' against http://127.0.0.1:5000
+The first one is slow while the model loads.
 
+  [ 1/15] ConnectionError
+  [ 2/15] ConnectionError
+  [ 3/15] ConnectionError
+  [ 4/15] ConnectionError
+  [ 5/15] ConnectionError
+  [ 6/15] ConnectionError
+  [ 7/15] ConnectionError
+  [ 8/15] ConnectionError
+  [ 9/15] ConnectionError
+  [10/15] ConnectionError
+  [11/15] ConnectionError
+  [12/15] ConnectionError
+  [13/15] ConnectionError
+  [14/15] ConnectionError
+  [15/15] ConnectionError
+
+============================================================
+ConnectionError ConnectionError ConnectionError ConnectionError ConnectionError ConnectionError ConnectionError ConnectionError ConnectionError ConnectionError ConnectionError ConnectionError ConnectionError ConnectionError ConnectionError
+============================================================
+
+No 429 at all. Either your limit is above 15 a minute, or rate limiting
+is still off — GET /health tells you which.
+
+Wrote results/flood_2026-11-24_1610.md
 ```
 
 ---

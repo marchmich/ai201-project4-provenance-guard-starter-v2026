@@ -39,7 +39,7 @@ Two terminals. In the first:
 ```bash
 python app.py
 ```
-
+kdfndjfnd
 In the second:
 
 ```bash
